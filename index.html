@@ -269,6 +269,61 @@
       animation: pop 0.4s cubic-bezier(.175, .885, .32, 1.275);
     }
     @keyframes pop { 0% { transform: scale(0.5); } 100% { transform: scale(1); } }
+
+    /* ── Sticker Book ── */
+    #tab-stickers {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    .sticker-board {
+      width: 100%;
+      height: 350px;
+      background: #fff9c4; /* Light yellow background */
+      border-radius: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+      position: relative;
+      overflow: hidden;
+      border: 4px solid #fff;
+    }
+    .sticker-drawer {
+      width: 100%;
+      background: white;
+      border-radius: 20px;
+      padding: 15px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+      display: flex;
+      gap: 15px;
+      overflow-x: auto;
+      min-height: 80px;
+      align-items: center;
+    }
+    .sticker-item {
+      font-size: 3rem;
+      cursor: grab;
+      transition: transform 0.15s;
+      user-select: none;
+      touch-action: none;
+    }
+    .sticker-item:hover { transform: scale(1.1); }
+    .sticker-item:active { cursor: grabbing; }
+    .sticker-item.locked {
+      opacity: 0.25;
+      filter: grayscale(100%);
+      cursor: not-allowed;
+    }
+    .placed-sticker {
+      font-size: 3.5rem;
+      position: absolute;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+      transform: translate(-50%, -50%); /* center on click */
+    }
+    .placed-sticker:active { cursor: grabbing; }
   </style>
 </head>
 <body>
@@ -279,6 +334,7 @@
   <button class="tab active" onclick="showTab('cards')">📇 Flash Cards</button>
   <button class="tab" onclick="showTab('sentences')">📖 Sentences</button>
   <button class="tab" id="tab-btn-build" onclick="showTab('build')">🧩 Build</button>
+  <button class="tab" id="tab-btn-stickers" onclick="showTab('stickers')">🦄 Stickers</button>
 </div>
 
 <!-- ══ FLASH CARDS ══ -->
@@ -334,6 +390,17 @@
     <div id="success-message" style="min-height:30px;"></div>
 
     <button class="shuffle-btn" onclick="startBuild()">🔄 Next Word</button>
+  </div>
+</div>
+
+<!-- ══ STICKER BOOK ══ -->
+<div id="tab-stickers" class="hidden">
+  <div class="sticker-board" id="sticker-board">
+    <!-- Placed stickers will go here -->
+  </div>
+  
+  <div class="sticker-drawer" id="sticker-drawer">
+    <!-- Sticker items will go here -->
   </div>
 </div>
 
@@ -422,6 +489,16 @@ let buildAnswer = []; // Array of letters placed
 let scrambledLetters = [];
 let buildVictory = false;
 
+// Sticker Book State
+let unlockedStickers = JSON.parse(localStorage.getItem('unlockedStickers') || '[]');
+let placedStickers = JSON.parse(localStorage.getItem('placedStickers') || '[]');
+
+// Add initial unlocking for testing/demo if empty (optional, but let's start empty)
+if (unlockedStickers.length === 0) {
+    // Start with a few unlocked for demo purposes, or leave empty to earn them.
+    // Let's leave empty to start.
+}
+
 const VOWELS = new Set('aeiou');
 
 // ── Helpers ────────────────────────────────────────────────
@@ -493,13 +570,17 @@ function showTab(tab) {
     btn.classList.toggle('active', 
       (tab === 'cards' && i === 0) || 
       (tab === 'sentences' && i === 1) ||
-      (tab === 'build' && i === 2)
+      (tab === 'build' && i === 2) ||
+      (tab === 'stickers' && i === 3)
     );
   });
   document.getElementById('tab-cards').classList.toggle('hidden', tab !== 'cards');
   document.getElementById('tab-sentences').classList.toggle('hidden', tab !== 'sentences');
   document.getElementById('tab-build').classList.toggle('hidden', tab !== 'build');
+  document.getElementById('tab-stickers').classList.toggle('hidden', tab !== 'stickers');
+  
   if (tab === 'build') startBuild();
+  if (tab === 'stickers') renderStickers();
 }
 
 // ── Keyboard support ───────────────────────────────────────
@@ -665,6 +746,16 @@ function checkVictory() {
     // Play sound effects
     playVictorySound();
 
+    // Unlock Sticker
+    // Find the word object in WORDS to get the emoji
+    const currentWordObj = WORDS.find(w => w.word.toLowerCase() === buildWord);
+    if (currentWordObj && !unlockedStickers.includes(currentWordObj.emoji)) {
+        unlockedStickers.push(currentWordObj.emoji);
+        localStorage.setItem('unlockedStickers', JSON.stringify(unlockedStickers));
+        // Show a small notification or effect?
+        msgDiv.innerHTML += `<div style="font-size:1rem; color:#6c3fc5;">Unlocked 🌻 Sticker: ${currentWordObj.emoji}</div>`;
+    }
+
     if ('speechSynthesis' in window) {
       setTimeout(() => {
         const wordUtterance = new SpeechSynthesisUtterance(buildWord);
@@ -684,6 +775,131 @@ function checkVictory() {
       startBuild(); 
     }, 2000);
   }
+}
+
+// ── Sticker Book Logic ─────────────────────────────────────
+function renderStickers() {
+  const drawer = document.getElementById('sticker-drawer');
+  const board = document.getElementById('sticker-board');
+  
+  // 1. Render Drawer
+  // Create a list of unique sticker emojis based on WORDS
+  const allStickers = [...new Set(WORDS.map(w => w.emoji))];
+  
+  drawer.innerHTML = allStickers.map(emoji => {
+    const isUnlocked = unlockedStickers.includes(emoji);
+    return `<div class="sticker-item ${isUnlocked ? '' : 'locked'}" 
+                 data-emoji="${emoji}" 
+                 draggable="${isUnlocked}"
+                 onpointerdown="${isUnlocked ? 'grabSticker(event)' : ''}">${emoji}</div>`;
+  }).join('');
+
+  // 2. Render Board
+  board.innerHTML = placedStickers.map((s, i) => `
+    <div class="placed-sticker" 
+         style="left: ${s.x}px; top: ${s.y}px;" 
+         data-index="${i}"
+         onpointerdown="movePlacedSticker(event, ${i})">${s.emoji}</div>
+  `).join('');
+  
+  // Add drop handler to board
+  board.onpointerup = handleBoardDrop;
+}
+
+let activeSticker = null;
+let activeStickerEmoji = null;
+let offsetX = 0;
+let offsetY = 0;
+
+function grabSticker(e) {
+    e.preventDefault();
+    const emoji = e.target.getAttribute('data-emoji');
+    activeStickerEmoji = emoji;
+    
+    activeSticker = document.createElement('div');
+    activeSticker.className = 'placed-sticker';
+    activeSticker.textContent = emoji;
+    activeSticker.style.zIndex = 1000;
+    document.body.appendChild(activeSticker);
+    
+    // Initial position
+    updateActiveStickerPos(e);
+    
+    document.addEventListener('pointermove', dragSticker);
+    document.addEventListener('pointerup', dropSticker);
+}
+
+function dragSticker(e) {
+    if (!activeSticker) return;
+    updateActiveStickerPos(e);
+}
+
+function updateActiveStickerPos(e) {
+     activeSticker.style.left = `${e.clientX}px`;
+     activeSticker.style.top = `${e.clientY}px`;
+}
+
+function dropSticker(e) {
+    if (!activeSticker) return;
+    
+    const board = document.getElementById('sticker-board');
+    const rect = board.getBoundingClientRect();
+    
+    if (e.clientX >= rect.left && e.clientX <= rect.right &&
+        e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        placedStickers.push({ emoji: activeStickerEmoji, x, y });
+        localStorage.setItem('placedStickers', JSON.stringify(placedStickers));
+        renderStickers();
+    }
+    
+    if (activeSticker) {
+        activeSticker.remove();
+        activeSticker = null;
+    }
+    
+    document.removeEventListener('pointermove', dragSticker);
+    document.removeEventListener('pointerup', dropSticker);
+}
+
+function handleBoardDrop(e) {
+    // Handled by dropSticker for new stickers
+}
+
+function movePlacedSticker(e, index) {
+    e.preventDefault();
+    const sticker = e.target;
+    const board = document.getElementById('sticker-board');
+    const rect = board.getBoundingClientRect();
+    
+    // Calculate offset from center
+    const initialX = placedStickers[index].x;
+    const initialY = placedStickers[index].y;
+    
+    function dragPlaced(de) {
+        const x = de.clientX - rect.left;
+        const y = de.clientY - rect.top;
+        
+        // Update visual immediately
+        sticker.style.left = `${x}px`;
+        sticker.style.top = `${y}px`;
+        
+        // Update state
+        placedStickers[index].x = x;
+        placedStickers[index].y = y;
+    }
+    
+    function dropPlaced(de) {
+        document.removeEventListener('pointermove', dragPlaced);
+        document.removeEventListener('pointerup', dropPlaced);
+        localStorage.setItem('placedStickers', JSON.stringify(placedStickers));
+    }
+    
+    document.addEventListener('pointermove', dragPlaced);
+    document.addEventListener('pointerup', dropPlaced);
 }
 
 </script>
