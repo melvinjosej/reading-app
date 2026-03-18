@@ -172,6 +172,103 @@
     .sent-emoji { font-size: 2rem; flex-shrink: 0; }
 
     .hidden { display: none !important; }
+
+    /* ── Build Mode ── */
+    #tab-build {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .build-container {
+      background: white;
+      border-radius: 24px;
+      padding: 30px 20px;
+      width: 100%;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 25px;
+    }
+    .build-emoji {
+      font-size: 7rem;
+      line-height: 1;
+    }
+    .slots-container {
+      display: flex;
+      gap: 15px;
+      min-height: 80px;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+    .slot {
+      width: 65px;
+      height: 65px;
+      border: 3px dashed #bbdefb;
+      border-radius: 14px;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.8rem;
+      font-weight: bold;
+      color: #1565c0;
+      transition: all 0.2s;
+    }
+    .slot.active { border-color: #3b82f6; background: #e3f2fd; }
+    .slot.correct { border-color: #4caf50; background: #e8f5e9 !important; color: #2e7d32; }
+
+    .letters-container {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+      min-height: 60px;
+    }
+    .letter-tile {
+      width: 55px;
+      height: 55px;
+      background: #fff;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.2rem;
+      font-weight: bold;
+      color: #333;
+      cursor: grab;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+      user-select: none;
+      touch-action: none; /* Crucial for pointerevents */
+      position: relative;
+    }
+    .letter-tile:active { cursor: grabbing; }
+    .letter-tile.dragging {
+      opacity: 0.8;
+      transform: scale(1.1);
+      z-index: 1000;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+    }
+    .letter-tile.placed {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      color: #1565c0;
+      font-size: 2.8rem;
+      cursor: default;
+    }
+    .success-text {
+      color: #4caf50;
+      font-size: 1.5rem;
+      font-weight: bold;
+      animation: pop 0.4s cubic-bezier(.175, .885, .32, 1.275);
+    }
+    @keyframes pop { 0% { transform: scale(0.5); } 100% { transform: scale(1); } }
   </style>
 </head>
 <body>
@@ -181,6 +278,7 @@
 <div class="tabs">
   <button class="tab active" onclick="showTab('cards')">📇 Flash Cards</button>
   <button class="tab" onclick="showTab('sentences')">📖 Sentences</button>
+  <button class="tab" id="tab-btn-build" onclick="showTab('build')">🧩 Build</button>
 </div>
 
 <!-- ══ FLASH CARDS ══ -->
@@ -218,6 +316,25 @@
 <div id="tab-sentences" class="sentences-section hidden">
   <p class="sentences-title">Read the sentences — <span style="color:#ffeb3b">pink words</span> are your CVC words!</p>
   <div id="sentences-list"></div>
+</div>
+
+<!-- ══ BUILD THE WORD ══ -->
+<div id="tab-build" class="hidden">
+  <div class="build-container">
+    <div class="build-emoji" id="build-emoji">❓</div>
+    
+    <div class="slots-container" id="slots-container">
+      <!-- Slots will be inserted here -->
+    </div>
+
+    <div class="letters-container" id="letters-container">
+      <!-- Scrambled letters will be inserted here -->
+    </div>
+
+    <div id="success-message" style="min-height:30px;"></div>
+
+    <button class="shuffle-btn" onclick="startBuild()">🔄 Next Word</button>
+  </div>
 </div>
 
 <script>
@@ -299,6 +416,12 @@ let deck = [...WORDS];
 let idx  = 0;
 let flipped = false;
 
+// Build Mode State
+let buildWord = '';
+let buildAnswer = []; // Array of letters placed
+let scrambledLetters = [];
+let buildVictory = false;
+
 const VOWELS = new Set('aeiou');
 
 // ── Helpers ────────────────────────────────────────────────
@@ -367,10 +490,16 @@ function renderSentences() {
 // ── Tab switching ──────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.tab').forEach((btn, i) => {
-    btn.classList.toggle('active', (tab === 'cards' && i === 0) || (tab === 'sentences' && i === 1));
+    btn.classList.toggle('active', 
+      (tab === 'cards' && i === 0) || 
+      (tab === 'sentences' && i === 1) ||
+      (tab === 'build' && i === 2)
+    );
   });
   document.getElementById('tab-cards').classList.toggle('hidden', tab !== 'cards');
   document.getElementById('tab-sentences').classList.toggle('hidden', tab !== 'sentences');
+  document.getElementById('tab-build').classList.toggle('hidden', tab !== 'build');
+  if (tab === 'build') startBuild();
 }
 
 // ── Keyboard support ───────────────────────────────────────
@@ -383,6 +512,134 @@ document.addEventListener('keydown', e => {
 // ── Init ───────────────────────────────────────────────────
 updateCard();
 renderSentences();
+// ── Build Mode Logic ───────────────────────────────────────
+function startBuild() {
+  buildVictory = false;
+  document.getElementById('success-message').innerHTML = '';
+  
+  // Pick random word from WORDS
+  const randIdx = Math.floor(Math.random() * WORDS.length);
+  const wordObj = WORDS[randIdx];
+  buildWord = wordObj.word.toLowerCase();
+  
+  document.getElementById('build-emoji').textContent = wordObj.emoji;
+  
+  // Clear containers
+  const slotsContainer = document.getElementById('slots-container');
+  const lettersContainer = document.getElementById('letters-container');
+  slotsContainer.innerHTML = '';
+  lettersContainer.innerHTML = '';
+  
+  buildAnswer = Array(buildWord.length).fill(null);
+  
+  // Create Slots
+  for (let i = 0; i < buildWord.length; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.id = `slot-${i}`;
+    slotsContainer.appendChild(slot);
+  }
+  
+  // Scramble letters
+  let letters = buildWord.split('');
+  scrambledLetters = [...letters].sort(() => Math.random() - 0.5);
+  
+  // Create Letter Tiles
+  scrambledLetters.forEach((letter, index) => {
+    const tile = document.createElement('div');
+    tile.className = 'letter-tile';
+    tile.textContent = letter;
+    tile.id = `tile-${index}`;
+    tile.setAttribute('data-letter', letter);
+    tile.style.userSelect = 'none';
+    
+    setupDragAndDrop(tile);
+    lettersContainer.appendChild(tile);
+  });
+}
+
+function setupDragAndDrop(tile) {
+  let isDragging = false;
+  let startX, startY;
+  
+  tile.addEventListener('pointerdown', (e) => {
+    if (buildVictory) return;
+    isDragging = true;
+    tile.classList.add('dragging');
+    tile.setPointerCapture(e.pointerId);
+    
+    const rect = tile.getBoundingClientRect();
+    startX = e.clientX - rect.left;
+    startY = e.clientY - rect.top;
+  });
+
+  tile.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    
+    tile.style.position = 'fixed';
+    tile.style.left = `${e.clientX - startX}px`;
+    tile.style.top = `${e.clientY - startY}px`;
+    tile.style.margin = '0';
+  });
+
+  tile.addEventListener('pointerup', (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    tile.classList.remove('dragging');
+    tile.releasePointerCapture(e.pointerId);
+
+    const tileRect = tile.getBoundingClientRect();
+    const centerX = tileRect.left + tileRect.width / 2;
+    const centerY = tileRect.top + tileRect.height / 2;
+    
+    let droppedInSlot = false;
+
+    for (let i = 0; i < buildWord.length; i++) {
+      const slot = document.getElementById(`slot-${i}`);
+      const slotRect = slot.getBoundingClientRect();
+
+      if (
+        centerX >= slotRect.left && centerX <= slotRect.right &&
+        centerY >= slotRect.top && centerY <= slotRect.bottom
+      ) {
+        if (!buildAnswer[i]) {
+          const letter = tile.getAttribute('data-letter');
+          
+          if (buildWord[i] === letter) {
+            buildAnswer[i] = letter;
+            slot.textContent = letter;
+            slot.classList.add('correct');
+            tile.remove(); // Remove tile from pool
+            droppedInSlot = true;
+            checkVictory();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!droppedInSlot) {
+      tile.style.position = '';
+      tile.style.left = '';
+      tile.style.top = '';
+      tile.style.margin = '';
+    }
+  });
+}
+
+function checkVictory() {
+  const answerStr = buildAnswer.map(l => l || '_').join('');
+  if (answerStr === buildWord) {
+    buildVictory = true;
+    const msgDiv = document.getElementById('success-message');
+    msgDiv.innerHTML = '<div class="success-text">🎉 Great job! 🎉</div>';
+    
+    setTimeout(() => {
+      startBuild(); 
+    }, 2000);
+  }
+}
 </script>
 </body>
 </html>
