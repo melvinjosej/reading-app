@@ -665,19 +665,43 @@ function checkVictory() {
     // Play sound effects
     playVictorySound();
 
-    // Speak word
     if ('speechSynthesis' in window) {
-      // Small delay for the chime to start
       setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(`${buildWord}. Great job!`);
-        utterance.rate = 0.8; 
-        speechSynthesis.speak(utterance);
+        const wordUtterance = new SpeechSynthesisUtterance(buildWord);
+        wordUtterance.rate = 0.8;
+        
+        wordUtterance.onend = function() {
+          const victoryAudio = new Audio('great_job.mp3');
+          let played = false;
+          
+          victoryAudio.onplay = () => { played = true; };
+          
+          victoryAudio.onerror = function() {
+              if (!played) {
+                  console.log("great_job.mp3 error, falling back to synthesis.");
+                  const utterance = new SpeechSynthesisUtterance("Great job!");
+                  utterance.rate = 0.8;
+                  speechSynthesis.speak(utterance);
+              }
+          };
+          
+          victoryAudio.play().catch(e => {
+              if (!played) {
+                  console.log("great_job.mp3 play failed, falling back to synthesis.");
+                  const utterance = new SpeechSynthesisUtterance("Great job!");
+                  utterance.rate = 0.8;
+                  speechSynthesis.speak(utterance);
+              }
+          });
+        };
+        
+        speechSynthesis.speak(wordUtterance);
       }, 300);
     }
     
     setTimeout(() => {
       startBuild(); 
-    }, 2500); // Slightly longer delay to fit audio
+    }, 3000); // Slightly longer delay to fit combined audio
   }
 }
 
