@@ -628,6 +628,33 @@ function setupDragAndDrop(tile) {
   });
 }
 
+function playVictorySound() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const ctx = new AudioContext();
+  
+  function playNote(freq, startTime, duration) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(0.3, startTime + 0.05);
+    gain.gain.linearRampToValueAtTime(0, startTime + duration);
+    osc.start(startTime);
+    osc.stop(startTime + duration);
+  }
+
+  const now = ctx.currentTime;
+  // Upward arpeggio for excitement
+  playNote(392.00, now, 0.2); // G4
+  playNote(523.25, now + 0.1, 0.2); // C5
+  playNote(659.25, now + 0.2, 0.3); // E5
+  playNote(783.99, now + 0.3, 0.4); // G5
+}
+
 function checkVictory() {
   const answerStr = buildAnswer.map(l => l || '_').join('');
   if (answerStr === buildWord) {
@@ -635,11 +662,25 @@ function checkVictory() {
     const msgDiv = document.getElementById('success-message');
     msgDiv.innerHTML = '<div class="success-text">🎉 Great job! 🎉</div>';
     
+    // Play sound effects
+    playVictorySound();
+
+    // Speak word
+    if ('speechSynthesis' in window) {
+      // Small delay for the chime to start
+      setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(`${buildWord}. Great job!`);
+        utterance.rate = 0.8; 
+        speechSynthesis.speak(utterance);
+      }, 300);
+    }
+    
     setTimeout(() => {
       startBuild(); 
-    }, 2000);
+    }, 2500); // Slightly longer delay to fit audio
   }
 }
+
 </script>
 </body>
 </html>
